@@ -1,0 +1,6 @@
+$out_root/
+{
+  include libcrails-ssh/
+}
+
+export $out_root/libcrails-ssh/$import.target

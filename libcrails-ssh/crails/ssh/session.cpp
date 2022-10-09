@@ -20,6 +20,11 @@ Session::~Session()
     ssh_free(handle);
 }
 
+static string log_connection_attempt(const char* state, const string& user, const string& ip, const string& port)
+{
+  return string("[ssh] ") + state + " with " + user + '@' + ip + ':' + port;
+}
+
 void Session::connect(const string& user, const string& ip, const string& port)
 {
   ssh_options_set(handle, SSH_OPTIONS_HOST,          ip.c_str());
@@ -29,22 +34,23 @@ void Session::connect(const string& user, const string& ip, const string& port)
   int con_result = ssh_connect(handle);
   if (con_result != SSH_OK)
   {
-    logger << Logger::Error << "SSH connection failed. Error code is:  " << con_result << Logger::endl;
+    logger << Logger::Error << std::bind(&log_connection_attempt, "connection failed", user, ip, port)
+           << ". Error code is:  " << con_result << Logger::endl;
     raise("SSH connection failed");
   }
   else
-    logger << Logger::Debug << "SSH connection opened to " << user << '@' << ip << ':' << port << Logger::endl;
+    logger << Logger::Debug << std::bind(&log_connection_attempt, "connection opened", user, ip, port) << Logger::endl;
 }
 
 static void check_auth_result(Session& session, int auth_result)
 {
   if (auth_result != SSH_AUTH_SUCCESS)
   {
-    logger << Logger::Error << "SSH authentication failed. Error code is:  " << auth_result << Logger::endl;
+    logger << Logger::Error << "[ssh] authentication failed. Error code is:  " << auth_result << Logger::endl;
     session.raise("SSH authentication failed");
   }
   else
-    logger << Logger::Debug << "SSH authentication success" << Logger::endl;
+    logger << Logger::Debug << "[ssh] authentication success" << Logger::endl;
 }
 
 void Session::authentify_with_password(const string& password)

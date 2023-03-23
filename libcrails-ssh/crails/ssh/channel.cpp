@@ -34,7 +34,7 @@ int Channel::exec(const string& command, function<void(char)> output)
   logger << Logger::Debug << "Ssh::Channel: running command: `" << command << '`' << Logger::endl;
   if (rc == SSH_OK)
   {
-    while (ssh_channel_is_open(handle) && !(is_eof = ssh_channel_is_eof(handle)))
+    while (ssh_channel_is_open(handle))
     {
       bytes_read = poll(buffer);
       if (bytes_read < 0)
@@ -47,11 +47,13 @@ int Channel::exec(const string& command, function<void(char)> output)
         for (int i = 0 ; i < bytes_read ; ++i)
           output(buffer[i]);
       }
-      else
+      is_eof = ssh_channel_is_eof(handle);
+      if (is_eof || bytes_read == 0)
       {
-        is_eof = ssh_channel_is_eof(handle);
         if (!is_eof)
           logger << Logger::Error << "Ssh::Channel: ssh_channel_read_timeout timed out" << Logger::endl;
+	else
+          logger << Logger::Debug << "Ssh::Channel: ssh_channel_is_eof returns true" << Logger::endl;
         break ;
       }
     }

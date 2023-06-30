@@ -20,8 +20,10 @@ Scp::Scp(ssh_session session_handle, const string& path, ScpMode mode) : path(pa
 
 Scp::~Scp()
 {
+  /*
   if (is_open)
     close();
+  */
   ssh_scp_free(handle);
 }
 

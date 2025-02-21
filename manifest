@@ -11,5 +11,5 @@ depends: * build2 >= 0.15.0
 depends: * bpkg >= 0.15.0
 #depends: libssh ^0.9.0
 depends: { libcrails-logger libcrails-readfile } >= 2.0.0
-depends: libssl ~1.1.1
-depends: libcrypto ~1.1.1
+depends: libssl >= 3.0.0
+depends: libcrypto >= 1.1.1

@@ -7,6 +7,21 @@ using namespace std;
 
 static const std::size_t buffer_size = 256;
 
+static inline ExitStatus log_and_return(ExitStatus status)
+{
+  logger << Logger::Debug << "Ssh::Channel ssh_channel_request_exec ended: ";
+  if (!status.has_exit_status())
+    logger << "could not retrieve exit status";
+  else if (status.was_dumped())
+    logger << "core dump";
+  else if (status.has_signal())
+    logger << "received signal " << status.get_signal();
+  else
+    logger << "code=" << status.get_code();
+  logger << Logger::endl;
+  return status;
+}
+
 int Channel::poll(char* buffer)
 {
   int bytes_read = poll(buffer, Stdout);
@@ -24,7 +39,7 @@ int Channel::poll(char* buffer, InputType type)
   return ssh_channel_read_timeout(handle, buffer, buffer_size, stream_id, timeout_ms);
 }
 
-int Channel::exec(const string& command, function<void(char)> output)
+ExitStatus Channel::exec(const string& command, function<void(char)> output)
 {
   bool is_eof = false;
   char buffer[buffer_size];
@@ -52,7 +67,7 @@ int Channel::exec(const string& command, function<void(char)> output)
       {
         if (!is_eof)
           logger << Logger::Error << "Ssh::Channel: ssh_channel_read_timeout timed out" << Logger::endl;
-	else
+        else
           logger << Logger::Debug << "Ssh::Channel: ssh_channel_is_eof returns true" << Logger::endl;
         break ;
       }
@@ -60,8 +75,7 @@ int Channel::exec(const string& command, function<void(char)> output)
   }
   else
     logger << Logger::Error << "Ssh::Channel: ssh_channel_request_exec returned with status " << rc << Logger::endl;
-  logger << Logger::Debug << "Ssh::Channel ssh_channel_request_exec ended" << Logger::endl;
-  return is_eof ? ssh_channel_get_exit_status(handle) : -1;
+  return log_and_return(is_eof ? ExitStatus(handle) : ExitStatus());
 }
 
 Channel::~Channel()

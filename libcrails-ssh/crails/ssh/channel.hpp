@@ -5,6 +5,7 @@
 # include <string>
 # include <chrono>
 # include <functional>
+# include "exit_status.hpp"
 
 namespace Crails
 {
@@ -23,13 +24,13 @@ namespace Crails
       ~Channel();
 
       template<typename STREAM>
-      int exec(const std::string& command, STREAM& stream)
+      ExitStatus exec(const std::string& command, STREAM& stream)
       {
         return exec(command, std::bind(&STREAM::put, &stream, std::placeholders::_1));
       }
 
       template<typename STREAM_A, typename STREAM_B>
-      int exec(const std::string& command, STREAM_A& stdout, STREAM_B& stderr)
+      ExitStatus exec(const std::string& command, STREAM_A& stdout, STREAM_B& stderr)
       {
         return exec(command, [this, &stdout, &stderr](char c)
         {
@@ -44,7 +45,7 @@ namespace Crails
       void set_timeout_duration(std::chrono::milliseconds duration) { timeout_ms = duration.count(); }
 
     private:
-      int exec(const std::string& command, std::function<void(char)> output);
+      ExitStatus exec(const std::string& command, std::function<void(char)> output);
       int poll(char* buffer);
       int poll(char* buffer, InputType type);
     };

@@ -11,7 +11,9 @@ static const int poll_slice_ms = 100;
 static inline ExitStatus log_and_return(ExitStatus status)
 {
   logger << Logger::Debug << "Ssh::Channel command ended: ";
-  if (!status.has_exit_status())
+  if (status.was_timed_out())
+    logger << "timed out";
+  else if (!status.has_exit_status())
     logger << "could not retrieve exit status";
   else if (status.was_dumped())
     logger << "core dump";
@@ -23,14 +25,13 @@ static inline ExitStatus log_and_return(ExitStatus status)
   return status;
 }
 
-inline bool Channel::timeout_check(const clock::time_point& started, const clock::time_point& last_output)
+inline bool Channel::is_within_time_limits(const clock::time_point& started, const clock::time_point& last_output)
 {
   const auto now = clock::now();
 
   if ((deadline_ms > 0 && now - started     > chrono::milliseconds(deadline_ms))
    || (timeout_ms  > 0 && now - last_output > chrono::milliseconds(timeout_ms)))
   {
-    logger << Logger::Error << "Ssh::Channel: command timed out" << Logger::endl;
     ssh_channel_close(handle);
     return false;
   }
@@ -42,13 +43,13 @@ ExitStatus Channel::read(function<void(char)> output)
   const clock::time_point started = clock::now();
   clock::time_point       last_output = started;
   char                    buffer[buffer_size];
-  bool                    received_data;
 
-  do
+  while (true)
   {
-    received_data = false;
-    if (timeout_check(started, last_output))
-      return ExitStatus::on_time_out();
+    bool received_data = false;
+
+    if (!is_within_time_limits(started, last_output))
+      return log_and_return(ExitStatus::on_time_out());
     for (InputType type : {Stdout, Stderr})
     {
       const int is_stderr = type == Stderr ? 1 : 0;
@@ -68,7 +69,9 @@ ExitStatus Channel::read(function<void(char)> output)
         last_output = clock::now();
       }
     }
-  } while (received_data || !ssh_channel_is_eof(handle));
+    if (!received_data && (ssh_channel_is_eof(handle) || ssh_channel_is_closed(handle)))
+      break ;
+  }
   return log_and_return(ExitStatus(handle));
 }
 

@@ -20,10 +20,13 @@ namespace Crails
       enum InputType { Stdout, Stderr };
       typedef std::chrono::steady_clock clock;
       ssh_channel handle = nullptr;
-      int timeout_ms = 0;
-      int deadline_ms = 0;
+      int timeout_ms = 0;   // max time without any output (0 = disabled)
+      int deadline_ms = 0;  // max total time (0 = disabled)
       InputType currently_reading = Stdout;
     public:
+      Channel() = default;
+      Channel(const Channel&) = delete;
+      Channel& operator=(const Channel&) = delete;
       ~Channel();
 
       template<typename STREAM>
@@ -33,23 +36,23 @@ namespace Crails
       }
 
       template<typename STREAM_A, typename STREAM_B>
-      ExitStatus exec(const std::string& command, STREAM_A& stdout, STREAM_B& stderr)
+      ExitStatus exec(const std::string& command, STREAM_A& out, STREAM_B& err)
       {
-        return exec(command, [this, &stdout, &stderr](char c)
+        return exec(command, std::function<void(char)>([this, &out, &err](char c)
         {
           if (currently_reading == Stdout)
-            stdout.put(c);
+            out.put(c);
           else
-            stderr.put(c);
-        });
+            err.put(c);
+        }));
       }
 
       void set_timeout_duration(int value) { timeout_ms = value; }
-      void set_timeout_duration(std::chrono::milliseconds duration) { timeout_ms = duration.count(); }
-      void set_deadline(std::chrono::milliseconds duration) { deadline_ms = duration.count(); }
+      void set_timeout_duration(std::chrono::milliseconds duration) { timeout_ms = static_cast<int>(duration.count()); }
+      void set_deadline(std::chrono::milliseconds duration) { deadline_ms = static_cast<int>(duration.count()); }
 
     private:
-      bool timeout_check(const clock::time_point& started, const clock::time_point& last_receive);
+      bool is_within_time_limits(const clock::time_point& started, const clock::time_point& last_output);
       ExitStatus exec(const std::string& command, std::function<void(char)> output);
       ExitStatus read(std::function<void(char)> output);
     };

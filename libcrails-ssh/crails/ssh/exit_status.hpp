@@ -2,6 +2,7 @@
 # define SSH_EXIT_STATUS_HPP
 
 # include <libssh/libssh.h>
+# include <cstdint>
 # include <string_view>
 
 namespace Crails
@@ -13,13 +14,13 @@ namespace Crails
     class ExitStatus
     {
       friend class Channel;
-      ExitStatus(ssh_channel);
+      explicit ExitStatus(ssh_channel);
       ExitStatus() {}
       static ExitStatus on_time_out();
     public:
-      ExitStatus(ExitStatus&&);
+      ExitStatus(ExitStatus&&) noexcept;
       ExitStatus(const ExitStatus&) = delete;
-      ExitStatus& operator=(ExitStatus&& other);
+      ExitStatus& operator=(ExitStatus&& other) noexcept;
       ExitStatus& operator=(const ExitStatus&) = delete;
       ~ExitStatus();
 
@@ -32,12 +33,14 @@ namespace Crails
 
       operator int() const
       {
-        if (!retrieved || dumped || (signal != nullptr))
+        if (!retrieved || timed_out || dumped || (signal != nullptr))
           return -1;
         return static_cast<int>(code);
       }
 
     private:
+      void release();
+
       bool     retrieved = false;
       uint32_t code = 0;
       char*    signal = nullptr;

@@ -2,6 +2,8 @@
 #include "channel.hpp"
 #include "scp.hpp"
 #include <crails/logger.hpp>
+#include <sstream>
+#include <stdexcept>
 
 using namespace std;
 using namespace Crails;
@@ -10,6 +12,8 @@ using namespace Crails::Ssh;
 Session::Session()
 {
   handle = ssh_new();
+  if (handle == NULL)
+    throw std::runtime_error("Ssh::Session: ssh_new failed");
   ssh_set_blocking(handle, 1);
 }
 
@@ -31,12 +35,17 @@ static string log_connection_attempt(const char* state, const string& user, cons
 
 void Session::connect(const string& user, const string& ip, const string& port)
 {
-  ssh_options_set(handle, SSH_OPTIONS_HOST,          ip.c_str());
-  ssh_options_set(handle, SSH_OPTIONS_PORT_STR,      port.c_str());
-  ssh_options_set(handle, SSH_OPTIONS_USER,          user.c_str());
-  ssh_options_set(handle, SSH_OPTIONS_LOG_VERBOSITY, &vbs);
-  if (connect_timeout_seconds > 0)
-    ssh_options_set(handle, SSH_OPTIONS_TIMEOUT, &connect_timeout_seconds);
+  bool options_ok =
+    ssh_options_set(handle, SSH_OPTIONS_HOST,          ip.c_str())   == SSH_OK
+ && ssh_options_set(handle, SSH_OPTIONS_PORT_STR,      port.c_str()) == SSH_OK
+ && ssh_options_set(handle, SSH_OPTIONS_USER,          user.c_str()) == SSH_OK
+ && ssh_options_set(handle, SSH_OPTIONS_LOG_VERBOSITY, &vbs)         == SSH_OK;
+
+  if (!options_ok)
+    raise("invalid connection options");
+  if (connect_timeout_seconds > 0
+   && ssh_options_set(handle, SSH_OPTIONS_TIMEOUT, &connect_timeout_seconds) != SSH_OK)
+    raise("invalid connection timeout");
   int con_result = ssh_connect(handle);
   if (con_result != SSH_OK)
   {
@@ -44,10 +53,39 @@ void Session::connect(const string& user, const string& ip, const string& port)
            << ". Error code is:  " << con_result << Logger::endl;
     raise("SSH connection failed");
   }
-  else
+  is_open = true;
+  try { verify_host_key(); }
+  catch (...)
   {
-    is_open = true;
-    logger << Logger::Debug << std::bind(&log_connection_attempt, "connection opened", user, ip, port) << Logger::endl;
+    ssh_disconnect(handle);
+    is_open = false;
+    throw;
+  }
+  logger << Logger::Debug << std::bind(&log_connection_attempt, "connection opened", user, ip, port) << Logger::endl;
+}
+
+void Session::verify_host_key()
+{
+  switch (ssh_session_is_known_server(handle))
+  {
+  case SSH_KNOWN_HOSTS_OK:
+    return ;
+  case SSH_KNOWN_HOSTS_CHANGED:
+    raise("host key has changed (possible man-in-the-middle attack)");
+  case SSH_KNOWN_HOSTS_OTHER:
+    raise("host key type differs from the known one (possible man-in-the-middle attack)");
+  case SSH_KNOWN_HOSTS_NOT_FOUND:
+  case SSH_KNOWN_HOSTS_UNKNOWN:
+    if (!accepts_unknown_hosts)
+      raise("unknown host, fingerprint " + get_host_fingerprint());
+    if (ssh_session_update_known_hosts(handle) != SSH_OK)
+      raise("could not save host to known_hosts");
+    logger << Logger::Info << "[ssh] added unknown host to known_hosts, fingerprint "
+           << get_host_fingerprint() << Logger::endl;
+    return ;
+  case SSH_KNOWN_HOSTS_ERROR:
+  default:
+    raise("host key verification failed");
   }
 }
 
@@ -96,8 +134,12 @@ void Session::authentify_with_password(const string& password)
 
 void Session::authentify_with_pubkey(const string& password)
 {
+  const char* password_ptr = password.empty()
+    ? NULL
+    : password.c_str();
+
   check_auth_result(
-    ssh_userauth_publickey_auto(handle, NULL, password.c_str())
+    ssh_userauth_publickey_auto(handle, NULL, password_ptr)
   );
 }
 
@@ -124,7 +166,7 @@ void Session::raise(const string& message)
   std::stringstream stream;
 
   stream << "Ssh::Session " << message << ": " << ssh_get_error(handle);
-  throw std::runtime_error(stream.str().c_str());
+  throw std::runtime_error(stream.str());
 }
 
 std::string Session::get_error()

@@ -16,9 +16,8 @@ namespace Crails
 {
   namespace Ssh
   {
-    struct Session
+    class Session
     {
-      friend class Channel;
       ssh_session handle;
       int vbs = SSH_LOG_RARE;
       bool accepts_unknown_hosts = false;
@@ -30,8 +29,6 @@ namespace Crails
       Session& operator=(const Session&) = delete;
       ~Session();
 
-      void should_accept_unknown_hosts(bool val) { accepts_unknown_hosts = val; } // TODO: not implemented ?
-
       void                     set_verbosity(int value) { vbs = value; }
       void                     set_connect_timeout(std::chrono::seconds value) { connect_timeout_seconds = value.count(); }
       bool                     is_connected() const { return is_open; }
@@ -39,6 +36,7 @@ namespace Crails
       void                     connect(const std::string& user, const std::string& ip, const std::string& port = "22");
       void                     authentify_with_password(const std::string& password);
       void                     authentify_with_pubkey(const std::string& password = "");
+      void                     should_accept_unknown_hosts(bool val) { accepts_unknown_hosts = val; }
 
       std::shared_ptr<Channel> make_channel(int read_timeout = DEFAULT_SSH_READ_TIMEOUT);
       std::shared_ptr<Scp>     make_scp_session(const std::string& path, ScpMode mode);
@@ -54,12 +52,13 @@ namespace Crails
       template<typename STREAM>
       int exec(const std::string& command, STREAM& output, std::chrono::milliseconds read_timeout)
       {
-        return exec(command, output, read_timeout.count());
+        return exec(command, output, static_cast<int>(read_timeout.count()));
       }
 
     private:
-      void raise(const std::string& message);
+      [[noreturn]] void raise(const std::string& message);
       void check_auth_result(int auth_result);
+      void verify_host_key();
     };
   }
 }

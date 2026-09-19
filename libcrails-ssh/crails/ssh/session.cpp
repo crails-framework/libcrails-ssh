@@ -17,7 +17,11 @@ Session::~Session()
 {
   logger << Logger::Debug << "Closing ssh session" << Logger::endl;
   if (handle != NULL)
+  {
+    if (is_open)
+      ssh_disconnect(handle);
     ssh_free(handle);
+  }
 }
 
 static string log_connection_attempt(const char* state, const string& user, const string& ip, const string& port)
@@ -31,6 +35,8 @@ void Session::connect(const string& user, const string& ip, const string& port)
   ssh_options_set(handle, SSH_OPTIONS_PORT_STR,      port.c_str());
   ssh_options_set(handle, SSH_OPTIONS_USER,          user.c_str());
   ssh_options_set(handle, SSH_OPTIONS_LOG_VERBOSITY, &vbs);
+  if (connect_timeout_seconds > 0)
+    ssh_options_set(handle, SSH_OPTIONS_TIMEOUT, &connect_timeout_seconds);
   int con_result = ssh_connect(handle);
   if (con_result != SSH_OK)
   {
@@ -39,15 +45,43 @@ void Session::connect(const string& user, const string& ip, const string& port)
     raise("SSH connection failed");
   }
   else
+  {
+    is_open = true;
     logger << Logger::Debug << std::bind(&log_connection_attempt, "connection opened", user, ip, port) << Logger::endl;
+  }
 }
 
-static void check_auth_result(Session& session, int auth_result)
+string Session::get_host_fingerprint()
+{
+  ssh_key        key = nullptr;
+  unsigned char* hash = nullptr;
+  size_t         hash_length = 0;
+  string         result;
+
+  if (is_open && ssh_get_server_publickey(handle, &key) == SSH_OK)
+  {
+    if (ssh_get_publickey_hash(key, SSH_PUBLICKEY_HASH_SHA256, &hash, &hash_length) == SSH_OK)
+    {
+      char* text = ssh_get_fingerprint_hash(SSH_PUBLICKEY_HASH_SHA256, hash, hash_length);
+
+      if (text)
+      {
+        result = text;
+        ssh_string_free_char(text);
+      }
+      ssh_clean_pubkey_hash(&hash);
+    }
+    ssh_key_free(key);
+  }
+  return result;
+}
+
+inline void Session::check_auth_result(int auth_result)
 {
   if (auth_result != SSH_AUTH_SUCCESS)
   {
     logger << Logger::Error << "[ssh] authentication failed. Error code is:  " << auth_result << Logger::endl;
-    session.raise("SSH authentication failed");
+    raise("SSH authentication failed");
   }
   else
     logger << Logger::Debug << "[ssh] authentication success" << Logger::endl;
@@ -56,14 +90,14 @@ static void check_auth_result(Session& session, int auth_result)
 void Session::authentify_with_password(const string& password)
 {
   check_auth_result(
-    *this, ssh_userauth_password(handle, NULL, password.c_str())
+    ssh_userauth_password(handle, NULL, password.c_str())
   );
 }
 
 void Session::authentify_with_pubkey(const string& password)
 {
   check_auth_result(
-    *this, ssh_userauth_publickey_auto(handle, NULL, password.c_str())
+    ssh_userauth_publickey_auto(handle, NULL, password.c_str())
   );
 }
 
@@ -73,9 +107,10 @@ shared_ptr<Channel> Session::make_channel(int read_timeout)
 
   channel->handle = ssh_channel_new(handle);
   channel->timeout_ms = read_timeout;
-  if (channel == NULL)
+  if (channel->handle == NULL)
     raise("Failed to create SSH channel");
-  ssh_channel_open_session(channel->handle);
+  if (ssh_channel_open_session(channel->handle) != SSH_OK)
+    raise("Failed to open SSH channel");
   return channel;
 }
 

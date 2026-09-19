@@ -5,11 +5,12 @@ using namespace Crails;
 using namespace Crails::Ssh;
 using namespace std;
 
-static const std::size_t buffer_size = 256;
+static const std::size_t buffer_size = 4096;
+static const int poll_slice_ms = 100;
 
 static inline ExitStatus log_and_return(ExitStatus status)
 {
-  logger << Logger::Debug << "Ssh::Channel ssh_channel_request_exec ended: ";
+  logger << Logger::Debug << "Ssh::Channel command ended: ";
   if (!status.has_exit_status())
     logger << "could not retrieve exit status";
   else if (status.was_dumped())
@@ -22,67 +23,72 @@ static inline ExitStatus log_and_return(ExitStatus status)
   return status;
 }
 
-int Channel::poll(char* buffer)
+inline bool Channel::timeout_check(const clock::time_point& started, const clock::time_point& last_output)
 {
-  int bytes_read = poll(buffer, Stdout);
+  const auto now = clock::now();
 
-  if (bytes_read == 0 && !ssh_channel_is_eof(handle))
-    bytes_read = poll(buffer, Stderr);
-  return bytes_read;
+  if ((deadline_ms > 0 && now - started     > chrono::milliseconds(deadline_ms))
+   || (timeout_ms  > 0 && now - last_output > chrono::milliseconds(timeout_ms)))
+  {
+    logger << Logger::Error << "Ssh::Channel: command timed out" << Logger::endl;
+    ssh_channel_close(handle);
+    return false;
+  }
+  return true;
 }
 
-int Channel::poll(char* buffer, InputType type)
+ExitStatus Channel::read(function<void(char)> output)
 {
-  int stream_id = type == Stdout ? 0 : 1;
+  const clock::time_point started = clock::now();
+  clock::time_point       last_output = started;
+  char                    buffer[buffer_size];
+  bool                    received_data;
 
-  currently_reading = type;
-  return ssh_channel_read_timeout(handle, buffer, buffer_size, stream_id, timeout_ms);
+  do
+  {
+    received_data = false;
+    if (timeout_check(started, last_output))
+      return ExitStatus::on_time_out();
+    for (InputType type : {Stdout, Stderr})
+    {
+      const int is_stderr = type == Stderr ? 1 : 0;
+      int bytes_read = ssh_channel_read_timeout(handle, buffer, buffer_size, is_stderr, poll_slice_ms);
+
+      if (bytes_read == SSH_ERROR)
+      {
+        logger << Logger::Error << "Ssh::Channel: connection error while reading command output" << Logger::endl;
+        return log_and_return(ExitStatus());
+      }
+      if (bytes_read > 0)
+      {
+        currently_reading = type;
+        for (int i = 0 ; i < bytes_read ; ++i)
+          output(buffer[i]);
+        received_data = true;
+        last_output = clock::now();
+      }
+    }
+  } while (received_data || !ssh_channel_is_eof(handle));
+  return log_and_return(ExitStatus(handle));
 }
 
 ExitStatus Channel::exec(const string& command, function<void(char)> output)
 {
-  bool is_eof = false;
-  char buffer[buffer_size];
-  int  bytes_read;
-  int rc = ssh_channel_request_exec(handle, command.c_str());
+  int rc;
 
   logger << Logger::Debug << "Ssh::Channel: running command: `" << command << '`' << Logger::endl;
+  rc = ssh_channel_request_exec(handle, command.c_str());
   if (rc == SSH_OK)
   {
-    while (ssh_channel_is_open(handle))
-    {
-      bytes_read = poll(buffer);
-      if (bytes_read < 0)
-      {
-        logger << Logger::Error << "Ssh::Channel: ssh_channel_read_timeout returned: " << bytes_read << Logger::endl;
-        is_eof = ssh_channel_is_eof(handle);
-      }
-      if (bytes_read > 0)
-      {
-        for (int i = 0 ; i < bytes_read ; ++i)
-          output(buffer[i]);
-      }
-      is_eof = ssh_channel_is_eof(handle);
-      if (is_eof || bytes_read == 0)
-      {
-        if (!is_eof)
-          logger << Logger::Error << "Ssh::Channel: ssh_channel_read_timeout timed out" << Logger::endl;
-        else
-          logger << Logger::Debug << "Ssh::Channel: ssh_channel_is_eof returns true" << Logger::endl;
-        break ;
-      }
-    }
+    ssh_channel_send_eof(handle); // broadcast non-interactiveness, command reading stdin won't hang
+    return read(output);
   }
-  else
-    logger << Logger::Error << "Ssh::Channel: ssh_channel_request_exec returned with status " << rc << Logger::endl;
-  return log_and_return(is_eof ? ExitStatus(handle) : ExitStatus());
+  logger << Logger::Error << "Ssh::Channel: ssh_channel_request_exec returned with status " << rc << Logger::endl;
+  return log_and_return(ExitStatus());
 }
 
 Channel::~Channel()
 {
   if (handle)
-  {
-    ssh_channel_close(handle);
     ssh_channel_free(handle);
-  }
 }

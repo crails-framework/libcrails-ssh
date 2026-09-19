@@ -15,6 +15,7 @@ namespace Crails
       friend class Channel;
       ExitStatus(ssh_channel);
       ExitStatus() {}
+      static ExitStatus on_time_out();
     public:
       ExitStatus(ExitStatus&&);
       ExitStatus(const ExitStatus&) = delete;
@@ -27,6 +28,7 @@ namespace Crails
       uint32_t         get_code() const { return code; }
       std::string_view get_signal() const;
       bool             was_dumped() const { return dumped; }
+      bool             was_timed_out() const { return timed_out; }
 
       operator int() const
       {
@@ -40,6 +42,7 @@ namespace Crails
       uint32_t code = 0;
       char*    signal = nullptr;
       bool     dumped = false;
+      bool     timed_out = false;
     };
   }
 }

@@ -13,13 +13,16 @@ namespace Crails
   {
     class Session;
 
+    // A Channel must be destroyed before the Session that created it.
     class Channel
     {
       friend class Session;
       enum InputType { Stdout, Stderr };
-      ssh_channel handle;
-      int timeout_ms;
-      InputType currently_reading;
+      typedef std::chrono::steady_clock clock;
+      ssh_channel handle = nullptr;
+      int timeout_ms = 0;
+      int deadline_ms = 0;
+      InputType currently_reading = Stdout;
     public:
       ~Channel();
 
@@ -43,11 +46,12 @@ namespace Crails
 
       void set_timeout_duration(int value) { timeout_ms = value; }
       void set_timeout_duration(std::chrono::milliseconds duration) { timeout_ms = duration.count(); }
+      void set_deadline(std::chrono::milliseconds duration) { deadline_ms = duration.count(); }
 
     private:
+      bool timeout_check(const clock::time_point& started, const clock::time_point& last_receive);
       ExitStatus exec(const std::string& command, std::function<void(char)> output);
-      int poll(char* buffer);
-      int poll(char* buffer, InputType type);
+      ExitStatus read(std::function<void(char)> output);
     };
   }
 }

@@ -24,6 +24,13 @@ ExitStatus::ExitStatus(ssh_channel handle)
 #endif
 }
 
+ExitStatus ExitStatus::on_time_out()
+{
+  ExitStatus status;
+  status.timed_out = true;
+  return status;
+}
+
 ExitStatus::ExitStatus(ExitStatus&& other)
 {
   retrieved = other.retrieved;

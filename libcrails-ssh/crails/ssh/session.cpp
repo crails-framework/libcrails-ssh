@@ -1,6 +1,7 @@
 #include "session.hpp"
 #include "channel.hpp"
 #include "scp.hpp"
+#include "sftp.hpp"
 #include <crails/logger.hpp>
 #include <sstream>
 #include <stdexcept>
@@ -159,6 +160,11 @@ shared_ptr<Channel> Session::make_channel(int read_timeout)
 shared_ptr<Scp> Session::make_scp_session(const string& path, ScpMode mode)
 {
   return make_shared<Scp>(handle, path, mode);
+}
+
+shared_ptr<Sftp> Session::make_sftp_session()
+{
+  return make_shared<Sftp>(handle);
 }
 
 void Session::raise(const string& message)

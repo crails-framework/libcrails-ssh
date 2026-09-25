@@ -6,6 +6,7 @@
 # include <string>
 # include <chrono>
 # include "scp.hpp"
+# include "sftp.hpp"
 # include "channel.hpp"
 
 #ifndef DEFAULT_SSH_READ_TIMEOUT
@@ -39,6 +40,7 @@ namespace Crails
       void                     should_accept_unknown_hosts(bool val) { accepts_unknown_hosts = val; }
 
       std::shared_ptr<Channel> make_channel(int read_timeout = DEFAULT_SSH_READ_TIMEOUT);
+      std::shared_ptr<Sftp>    make_sftp_session();
       std::shared_ptr<Scp>     make_scp_session(const std::string& path, ScpMode mode);
 
       std::string get_error();

@@ -5,7 +5,6 @@
 # include <memory>
 # include <string>
 # include <chrono>
-# include "scp.hpp"
 # include "sftp.hpp"
 # include "channel.hpp"
 
@@ -41,7 +40,6 @@ namespace Crails
 
       std::shared_ptr<Channel> make_channel(int read_timeout = DEFAULT_SSH_READ_TIMEOUT);
       std::shared_ptr<Sftp>    make_sftp_session();
-      std::shared_ptr<Scp>     make_scp_session(const std::string& path, ScpMode mode);
 
       std::string get_error();
 

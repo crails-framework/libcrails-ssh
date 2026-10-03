@@ -1,6 +1,5 @@
 #include "session.hpp"
 #include "channel.hpp"
-#include "scp.hpp"
 #include "sftp.hpp"
 #include <crails/logger.hpp>
 #include <sstream>
@@ -155,11 +154,6 @@ shared_ptr<Channel> Session::make_channel(int read_timeout)
   if (ssh_channel_open_session(channel->handle) != SSH_OK)
     raise("Failed to open SSH channel");
   return channel;
-}
-
-shared_ptr<Scp> Session::make_scp_session(const string& path, ScpMode mode)
-{
-  return make_shared<Scp>(handle, path, mode);
 }
 
 shared_ptr<Sftp> Session::make_sftp_session()
